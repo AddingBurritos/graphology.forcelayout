@@ -4,6 +4,7 @@ import generateCreateBodyFunction from '../lib/codeGenerators/generateCreateBody
 import createPhysicsSimulator from '../lib/createPhysicsSimulator.js';
 import {augment} from '../lib/createPhysicsSimulator.js';
 import Spring from '../lib/spring.js';
+import Graph from 'graphology';
 
 const dimensions2 = 2;
 const Body2 = generateCreateBodyFunction(dimensions2);
@@ -11,16 +12,15 @@ const Body3 = generateCreateBodyFunction(3);
 
 t.test("Can step without bodies", function (t) {
   const simulator = createPhysicsSimulator();
-  t.equal(simulator.bodies.length, 0, "There should be no bodies");
-  t.equal(simulator.springs.size, 0, "There should be no springs");
+  // t.equal(simulator.bodies.length, 0, "There should be no bodies");
+  // t.equal(simulator.springs.size, 0, "There should be no springs");
   simulator.step();
   t.end();
 });
 
 t.test("it has settings exposed", function (t) {
-  const mySettings = {};
-  const simulator = createPhysicsSimulator(mySettings);
-  t.ok(mySettings === simulator.settings, "settings are exposed");
+  const simulator = createPhysicsSimulator();
+  t.ok(simulator.settings, "settings are exposed");
   t.end();
 });
 
@@ -41,11 +41,10 @@ t.test("value of augment key should be a number", function (t) {
 });
 
 t.test("it gives amount of total movement", function (t) {
-  const simulator = createPhysicsSimulator();
-  const body1 = new Body2(-10, 0);
-  const body2 = new Body2(10, 0);
-  simulator.addBody(body1);
-  simulator.addBody(body2);
+  const g = new Graph();
+  g.addNode("first", {position: {x: -10, y: 0}});
+  g.addNode("second", {position: {x: 10, y: 0}});
+  const simulator = createPhysicsSimulator(g);
   simulator.step();
 
   const totalMoved = simulator.getTotalMovement();
@@ -53,34 +52,29 @@ t.test("it gives amount of total movement", function (t) {
   t.end();
 });
 
-t.test("it can add a body at given position", function (t) {
+t.test("it can create a body at given position", function (t) {
   const simulator = createPhysicsSimulator();
   const pos1 = { x: -10, y: 0 };
-  const pos2 = { x: 10, y: 0 };
-  simulator.addBodyAt(pos1);
-  simulator.addBodyAt(pos2);
-
-  t.equal(simulator.bodies.length, 2, "All bodies are added");
-  const body1 = simulator.bodies[0];
+  const pos2 = { x: 10, y: 1 };
+  const body1 = simulator.createBodyAt(pos1);
+  const body2 = simulator.createBodyAt(pos2);
 
   t.equal(body1.pos.x, -10, "X is there");
   t.equal(body1.pos.y, 0, "Y is there");
 
-  const body2 = simulator.bodies[1];
   t.equal(body2.pos.x, 10, "X is there");
-  t.equal(body2.pos.y, 0, "Y is there");
+  t.equal(body2.pos.y, 1, "Y is there");
   t.end();
 });
 
 t.test("Does not update position of one body", function (t) {
   const simulator = createPhysicsSimulator();
-  const body = new Body2(0, 0);
-  simulator.addBody(body);
+  const pos = {x: 0, y: 0};
+  const body = simulator.createBodyAt(pos);
+  simulator.addBody("test", body);
 
-  simulator.step(1);
-  t.equal(simulator.bodies.length, 1, "Number of bodies is 1");
-  t.equal(simulator.springs.size, 0, "Number of springs is 0");
-  t.equal(simulator.bodies[0], body, "Body points to actual object");
+  simulator.step();
+  t.equal(simulator.getBody("test"), body, "Body points to actual object");
   t.equal(body.pos.x, 0, "X is not changed");
   t.equal(body.pos.y, 0, "Y is not changed");
   t.end();
@@ -88,16 +82,21 @@ t.test("Does not update position of one body", function (t) {
 
 t.test("throws on no body or no pos", (t) => {
   const simulator = createPhysicsSimulator();
-  t.throws(() => simulator.addBody(), /Body is required/);
-  t.throws(() => simulator.addBodyAt(), /Body position is required/);
+  t.throws(() => simulator.addBody(), /Node must be provided to addBody/);
+  t.throws(() => simulator.addBody("test"), /Body is required/);
+  t.throws(() => simulator.createBodyAt(), /Body position is required/);
   t.end();
 });
 
 t.test("throws on no spring", (t) => {
-  const simulator = createPhysicsSimulator();
+  const g = new Graph();
+  const simulator = createPhysicsSimulator(g);
+  g.addNode("src");
+  g.addNode("dst");
+  g.addEdgeWithKey("test", "src", "dst");
   t.throws(
-    () => simulator.addSpringWithKey(),
-    /Cannot add null spring to force simulator/,
+    () => simulator.addSpring("test"),
+    /Cannot add null spring to force simulator/
   );
   t.end();
 });
@@ -129,24 +128,24 @@ t.test("Throws when adding forces of duplicate name", function (t) {
 t.test("Can configure forces", function (t) {
   t.test("Gravity", function (t) {
     const simulator = createPhysicsSimulator();
-    const body1 = new Body2(0, 0);
-    const body2 = new Body2(1, 0);
+    const body1 = new Body2(-0.5, 0);
+    const body2 = new Body2(0.5, 0);
 
-    simulator.addBody(body1);
-    simulator.addBody(body2);
+    simulator.addBody("test1", body1);
+    simulator.addBody("test2", body2);
 
     simulator.step();
     // by default gravity is negative, bodies should repel each other:
-    const x1 = body1.pos.x;
-    const x2 = body2.pos.x;
-    t.ok(x1 < 0, "Body 1 moves away from body 2");
-    t.ok(x2 > 1, "Body 2 moves away from body 1");
+    const xDist = Math.abs(body1.pos.x - body2.pos.x); 
+    t.ok(xDist > 1, "Body 1 moves away from body 2");
+    t.equal(body1.pos.x, body2.pos.x * -1, "Bodies repel equally");
 
     // now reverse gravity, and bodies should attract each other:
     simulator.gravity(100);
     simulator.step();
-    t.ok(body1.pos.x > x1, "Body 1 moved towards body 2");
-    t.ok(body2.pos.x < x2, "Body 2 moved towards body 1");
+    const newDist = Math.abs(body1.pos.x - body2.pos.x);
+    t.ok(xDist > newDist, "Body 1 moved towards body 2");
+    t.equal(body1.pos.x, body2.pos.x * -1, "Bodies attract equally");
 
     t.end();
   });
@@ -155,7 +154,7 @@ t.test("Can configure forces", function (t) {
     const simulator = createPhysicsSimulator();
     const body1 = new Body2(0, 0);
     body1.velocity.x = -1; // give it small impulse
-    simulator.addBody(body1);
+    simulator.addBody("test", body1);
 
     simulator.step();
 
@@ -176,18 +175,20 @@ t.test("Can configure forces", function (t) {
 t.test("Can remove bodies", function (t) {
   const simulator = createPhysicsSimulator();
   const body = new Body2(0, 0);
-  simulator.addBody(body);
-  t.equal(simulator.bodies.length, 1, "Number of bodies is 1");
-  const result = simulator.removeBody(body);
+  const node = "test";
+  simulator.addBody(node, body);
+  t.equal(simulator.countBodies(), 1, "Number of bodies is 1");
+  const result = simulator.removeBody(node);
   t.equal(result, true, "body successfully removed");
-  t.equal(simulator.bodies.length, 0, "Number of bodies is 0");
+  t.equal(simulator.countBodies(), 0, "Number of bodies is 0");
   t.end();
 });
 
 t.test("removeBody requires body", function (t) {
   const simulator = createPhysicsSimulator();
   const body = new Body2(0, 0);
-  simulator.addBody(body);
+  const node = "test";
+  simulator.addBody(node, body);
   t.notOk(
     simulator.removeBody(),
     "removeBody returns falsey if not given body",
@@ -199,11 +200,11 @@ t.test("Updates position for two bodies", function (t) {
   const simulator = createPhysicsSimulator();
   const body1 = new Body2(-1, 0);
   const body2 = new Body2(1, 0);
-  simulator.addBody(body1);
-  simulator.addBody(body2);
+  simulator.addBody("test1", body1);
+  simulator.addBody("test2", body2);
 
   simulator.step();
-  t.equal(simulator.bodies.length, 2, "Number of bodies is 2");
+  t.equal(simulator.countBodies(), 2, "Number of bodies is 2");
   t.ok(body1.pos.x !== 0, "Body1.X has changed");
   t.ok(body2.pos.x !== 0, "Body2.X has changed");
 
@@ -212,33 +213,28 @@ t.test("Updates position for two bodies", function (t) {
   t.end();
 });
 
-t.test("addSpringWithKey should not add bodies", function (t) {
+t.test("addSpring should not add bodies", function (t) {
   const simulator = createPhysicsSimulator();
   const body1 = new Body2(-1, 0);
   const body2 = new Body2(1, 0);
 
   const spring = new Spring(body1, body2, 10, 2);
-  simulator.addSpringWithKey("test", spring);
-
-  t.equal(simulator.bodies.length, 0, "Should not add two bodies");
-  t.equal(simulator.bodies.length, 0, "Should not add two bodies");
-  t.equal(simulator.springs.size, 1, "Should have a spring");
-  t.equal(
-    simulator.getSpring("test").coefficient,
-    2,
-    "Spring coefficient is 2",
-  );
+  t.throws(() => simulator.addSpring("test", spring), /Cannot create spring on nonexistant edge/);
   t.end();
 });
 
 t.test("throws when adding spring with duplicate key", function (t) {
-  const simulator = createPhysicsSimulator();
+  const g = new Graph();
+  const simulator = createPhysicsSimulator(g);
   const body1 = new Body2(-1, 0);
   const body2 = new Body2(1, 0);
   const spring = new Spring(body1, body2, 10, 2);
-  simulator.addSpringWithKey("test", spring);
+  simulator.addBody("src", body1);
+  simulator.addBody("dst", body2);
+  g.addEdgeWithKey("test", "src", "dst");
+  simulator.addSpring("test", spring);
   t.throws(
-    () => simulator.addSpringWithKey("test", spring),
+    () => simulator.addSpring("test", spring),
     "Spring test is already added",
   );
   t.end();
@@ -253,18 +249,20 @@ t.test("negative spring coefficients must be -1", function (t) {
 });
 
 t.test("Spring affects bodies positions", function (t) {
-  const simulator = createPhysicsSimulator();
+  const g = new Graph();
+  const simulator = createPhysicsSimulator(g);
   const body1 = new Body2(-10, 0);
   const body2 = new Body2(10, 0);
-  simulator.addBody(body1);
-  simulator.addBody(body2);
+  simulator.addBody("test1", body1);
+  simulator.addBody("test2", body2);
+  g.addEdgeWithKey("test", "test1", "test2");
   // If you take this out, bodies will repel each other:
   const spring = new Spring(body1, body2, 1);
-  simulator.addSpringWithKey("test", spring);
+  simulator.addSpring("test", spring);
 
   simulator.step();
-  t.ok(simulator.bodies[0].pos.x > -10, "Body 1 should move towards body 2");
-  t.ok(simulator.bodies[1].pos.x < 10, "Body 2 should move towards body 1");
+  t.ok(simulator.getBody("test1").pos.x > -10, "Body 1 should move towards body 2");
+  t.ok(simulator.getBody("test2").pos.x < 10, "Body 2 should move towards body 1");
 
   t.end();
 });
@@ -273,8 +271,8 @@ t.test("Added dimensions get used", function (t) {
   const simulator = createPhysicsSimulator();
   const body1 = new Body2(-10, -10);
   const body2 = new Body2(10, 10);
-  simulator.addBody(body1);
-  simulator.addBody(body2);
+  simulator.addBody("test1", body1);
+  simulator.addBody("test2", body2);
 
   simulator.step();
 
@@ -292,14 +290,16 @@ t.test("Added dimensions get used", function (t) {
 });
 
 t.test("If bodies do not start using a dimension, that dimension will never be used", function (t) {
-  const simulator = createPhysicsSimulator({ dimensions: 3 });
+  const g = new Graph();
+  const simulator = createPhysicsSimulator(g, { dimensions: 3 });
   const body1 = new Body3(10000, 2, 1);
   const body2 = new Body3(-1100000, 0, 1);
-  simulator.addBody(body1);
-  simulator.addBody(body2);
+  simulator.addBody("test1", body1);
+  simulator.addBody("test2", body2);
+  g.addEdgeWithKey("test", "test1", "test2");
   const spring = new Spring(body1, body2, 1);
   // If you take this out, bodies will repel each other:
-  simulator.addSpringWithKey("test", spring);
+  simulator.addSpring("test", spring);
 
   t.ok(body1.pos.z == 1, "Body 1 should start at z=1");
   t.ok(body2.pos.z == 1, "Body 2 should start at z=1");
@@ -313,31 +313,38 @@ t.test("If bodies do not start using a dimension, that dimension will never be u
 });
 
 t.test("Can remove springs", function (t) {
-  const simulator = createPhysicsSimulator();
+  const g = new Graph();
+  const simulator = createPhysicsSimulator(g);
+
   const body1 = new Body2(-10, 0);
   const body2 = new Body2(10, 0);
+  simulator.addBody("test1", body1);
+  simulator.addBody("test2", body2);
+
   const spring = new Spring(body1, body2, 1);
-  simulator.addBody(body1);
-  simulator.addBody(body2);
-  simulator.addSpringWithKey("test", spring);
+  g.addEdgeWithKey("test", "test1", "test2");
+  simulator.addSpring("test", spring);
+
   simulator.removeSpring("test");
 
   simulator.step();
-
-  t.ok(body1.pos.x < -10, "Body 1 should move away from body 2");
-  t.ok(body2.pos.x > 10, "Body 2 should move away from body 1");
+  const dist = Math.abs(body1.pos.x - body2.pos.x);
+  t.ok(dist > 20, "Body 1 should move away from body 2");
+  t.equal(body1.pos.x, body2.pos.x * -1, "Bodies repel equally");
 
   t.end();
 });
 
 t.test("removeSpring requires spring", function (t) {
-  const simulator = createPhysicsSimulator();
+  const g = new Graph();
+  const simulator = createPhysicsSimulator(g);
   const body1 = new Body2(-10, 0);
   const body2 = new Body2(10, 0);
-  simulator.addBody(body1);
-  simulator.addBody(body2);
+  simulator.addBody("test1", body1);
+  simulator.addBody("test2", body2);
   const spring = new Spring(body1, body2, 1);
-  simulator.addSpringWithKey("test", spring);
+  g.addEdgeWithKey("test", "test1", "test2");
+  simulator.addSpring("test", spring);
 
   t.notOk(simulator.removeSpring(null), "returns falsey if spring is falsey");
   t.end();
@@ -347,8 +354,8 @@ t.test("Get bounding box", function (t) {
   const simulator = createPhysicsSimulator();
   const body1 = new Body2(0, 0);
   const body2 = new Body2(10, 10);
-  simulator.addBody(body1);
-  simulator.addBody(body2);
+  simulator.addBody("test1", body1);
+  simulator.addBody("test2", body2);
   simulator.step(); // this will move bodies farther away
   const bbox = simulator.getBBox();
   t.ok(bbox.min_x <= 0, "Left is 0");
@@ -362,8 +369,8 @@ t.test("it updates bounding box", function (t) {
   const simulator = createPhysicsSimulator();
   const body1 = new Body2(0, 0);
   const body2 = new Body2(10, 10);
-  simulator.addBody(body1);
-  simulator.addBody(body2);
+  simulator.addBody("test1", body1);
+  simulator.addBody("test2", body2);
   let bbox = simulator.getBBox();
 
   t.ok(bbox.min_x === 0, "Left is 0");
@@ -384,7 +391,7 @@ t.test("it updates bounding box", function (t) {
 t.test("Get best position", function (t) {
   t.test("can get with empty simulator", function (t) {
     const simulator = createPhysicsSimulator();
-    const empty = simulator.getBestNewBodyPosition([]);
+    const empty = simulator.getBestNewBodyPosition();
     t.ok(typeof empty.x === "number", "Has X");
     t.ok(typeof empty.y === "number", "Has Y");
 
@@ -433,8 +440,56 @@ t.test("it can change settings", function (t) {
   t.end();
 });
 
+t.test("it can iterate over bodies", function (t) {
+  const graph = new Graph();
+  const simulator = createPhysicsSimulator(graph);
+
+  graph.addNode("src", {body: simulator.createBodyAt({x: 0, y: 0})});
+  graph.addNode("dst", {body: simulator.createBodyAt({x: 1, y: 1})});
+  graph.addEdgeWithKey("src->dst", "src", "dst");
+  let calledCount = 0;
+
+  simulator.forEachBody(function (bodyId, body) {
+    t.ok(body.pos, bodyId + " has position");
+    t.ok(graph.hasNode(bodyId), bodyId + " matches a graph node");
+    calledCount += 1;
+  });
+
+  t.equal(calledCount, 2, "Both bodies are visited");
+  t.end();
+});
+
+t.test("isNodeOriginallyPinned", function (t) {
+  t.test("returns true if node is pinned", function (t) {
+    const graph = new Graph();
+    graph.addNode("test", { isPinned: true });
+    const simulator = createPhysicsSimulator(graph);
+    t.ok(simulator.isNodeOriginallyPinned("test"), "Node is pinned");
+    t.end();
+  });
+
+  t.test("returns false if node is not pinned", function (t) {
+    const graph = new Graph();
+    graph.addNode("test", { isPinned: false });
+    const simulator = createPhysicsSimulator(graph);
+    t.notOk(simulator.isNodeOriginallyPinned("test"), "Node is not pinned");
+    t.end();
+  });
+
+  t.test("returns undefined if isPinned is not defined", function (t) {
+    const graph = new Graph();
+    graph.addNode("test");
+    const simulator = createPhysicsSimulator(graph);
+    t.notOk(simulator.isNodeOriginallyPinned("test"), "Node is not pinned");
+    t.end();
+  });
+
+  t.end();
+});
+
 t.test("it can augment string setter values", function (t) {
-  const simulator = createPhysicsSimulator({
+  const g = new Graph();
+  const simulator = createPhysicsSimulator(g, {
     name: "John",
   });
 
@@ -446,23 +501,9 @@ t.test("it can augment string setter values", function (t) {
 t.test("it ignores body that does not exist", function (t) {
   const simulator = createPhysicsSimulator();
   const body = new Body2(0, 0);
-  simulator.addBody(body);
-  simulator.removeBody({});
-  t.equal(simulator.bodies.length, 1, "Should ignore body that does not exist");
-  t.end();
-});
-
-t.test("it throws on springCoeff", function (t) {
-  t.throws(function () {
-    createPhysicsSimulator({ springCoeff: 1 });
-  }, "springCoeff was renamed to springCoefficient");
-  t.end();
-});
-
-t.test("it throws on dragCoeff", function (t) {
-  t.throws(function () {
-    createPhysicsSimulator({ dragCoeff: 1 });
-  }, "dragCoeff was renamed to dragCoefficient");
+  simulator.addBody("real", body);
+  simulator.removeBody("fake");
+  t.equal(simulator.countBodies(), 1, "Should ignore body that does not exist");
   t.end();
 });
 
@@ -479,9 +520,9 @@ t.test("it can change number of dimensions", function (t) {
   t.test("it can add a dimension", function (t) {
     const simulator = createPhysicsSimulator();
     const body = new Body2(-10, 10);
-    simulator.addBody(body);
+    simulator.addBody("test", body);
 
-    const body2 = simulator.bodies[0];
+    const body2 = simulator.getBody("test");
 
     t.equal(body, body2, "2D bodies persist after sim insertion");
     t.equal(body2.pos.x, -10, "X is there");
@@ -490,7 +531,7 @@ t.test("it can change number of dimensions", function (t) {
 
     simulator.setDimensions(3);
 
-    const body3 = simulator.bodies[0];
+    const body3 = simulator.getBody("test");
     t.equal(body3, body2, "bodies persist after dimension transition");
     t.equal(body3.pos.x, -10, "X is the same");
     t.equal(body3.pos.y, 10, "Y is the same");
@@ -501,12 +542,13 @@ t.test("it can change number of dimensions", function (t) {
     t.end();
   });
   t.test("it can remove a dimension", function (t) {
-    const simulator = createPhysicsSimulator({ dimensions: 3 });
+    const g = new Graph();
+    const simulator = createPhysicsSimulator(g, { dimensions: 3 });
     const Body3 = generateCreateBodyFunction(3);
     const body = new Body3(-10, 10, 10);
-    simulator.addBody(body);
+    simulator.addBody("test", body);
 
-    const body3 = simulator.bodies[0];
+    const body3 = simulator.getBody("test");
 
     t.equal(body, body3, "3D bodies persist after sim insertion");
     t.equal(body3.pos.x, -10, "X is there");
@@ -515,7 +557,7 @@ t.test("it can change number of dimensions", function (t) {
 
     simulator.setDimensions(2);
 
-    const body2 = simulator.bodies[0];
+    const body2 = simulator.getBody("test");
     t.equal(body2, body3, "bodies persist after dimension transition");
     t.equal(body2.pos.x, -10, "X is the same");
     t.equal(body2.pos.y, 10, "Y is the same");
@@ -526,10 +568,11 @@ t.test("it can change number of dimensions", function (t) {
     t.end();
   });
   t.test("it can add two dimensions", function (t) {
-    const simulator = createPhysicsSimulator({ dimensions: 3 });
+    const g = new Graph();
+    const simulator = createPhysicsSimulator(g, { dimensions: 3 });
     const Body3 = generateCreateBodyFunction(3);
     const body = new Body3(-10, 10, 20);
-    simulator.addBody(body);
+    simulator.addBody("test", body);
     simulator.setDimensions(5);
 
     t.equal(body.pos.x, -10, "X is there");

@@ -18,7 +18,7 @@ export default function createLayout(graph, physicsSettings) {
   }
 
   const createSimulator = (physicsSettings && physicsSettings.createSimulator) || createPhysicsSimulator;
-  let physicsSimulator = createSimulator(physicsSettings);
+  let physicsSimulator = createSimulator(graph, physicsSettings);
   if (Array.isArray(physicsSettings))
     throw new Error("Physics settings is expected to be an object");
 
@@ -27,16 +27,12 @@ export default function createLayout(graph, physicsSettings) {
     nodeMass = physicsSettings.nodeMass;
   }
 
-  let nodeBodies = new Map();
-
   // Define event handlers
   const nodeAddedHandler = ({ key, attributes }) => initBody(key, attributes);
   const edgeAddedHandler = ({ key, source, target, attributes }) =>
     initLink(key, attributes, source, target);
-  const nodeDroppedHandler = ({ key, attributes }) =>
-    releaseNode(key, attributes);
   const edgeDroppedHandler = ({ key, source, target, attributes }) =>
-    releaseLink(key, attributes, source, target);
+    releaseEdge(key, attributes, source, target);
   const nodeAttributesUpdatedHandler = ({ type, key, attributes, name }) =>
     handleNodeUpdates(type, key, attributes, name); // Could pass 'data' if we wanted
 
@@ -54,7 +50,7 @@ export default function createLayout(graph, physicsSettings) {
      * The system is stable if no further call to `step()` can improve the layout.
      */
     step: function () {
-      if (nodeBodies.size === 0) {
+      if (graph.order === 0) {
         updateStableStatus(true);
         return true;
       }
@@ -68,7 +64,7 @@ export default function createLayout(graph, physicsSettings) {
       // Allow listeners to perform low-level actions after nodes are updated.
       api.fire("step");
 
-      const ratio = lastMove / nodeBodies.size;
+      const ratio = lastMove / graph.order;
       const isStableNow = ratio <= 0.01; // TODO: The number is somewhat arbitrary...
       updateStableStatus(isStableNow);
 
@@ -92,6 +88,7 @@ export default function createLayout(graph, physicsSettings) {
     setNodePosition: function (nodeId) {
       const body = getInitializedBody(nodeId);
       body.setPosition.apply(body, Array.prototype.slice.call(arguments, 1));
+      graph.setNodeAttribute(nodeId, physicsSimulator.settings.body, body);
     },
 
     /**
@@ -100,7 +97,7 @@ export default function createLayout(graph, physicsSettings) {
      * @returns {Object.to} {x, y} coordinates of link end
      */
     getLinkPosition: function (linkId) {
-      const spring = getSpring(linkId);
+      const spring = physicsSimulator.getSpring(linkId);
       if (spring) {
         return {
           from: spring.from.pos,
@@ -117,11 +114,6 @@ export default function createLayout(graph, physicsSettings) {
     getGraphRect: function () {
       return physicsSimulator.getBBox();
     },
-
-    /**
-     * Iterates over each body in the layout simulator and performs a callback(body, nodeId)
-     */
-    forEachBody: forEachBody,
 
     /*
      * Requests layout algorithm to pin/unpin node to its current position
@@ -143,7 +135,6 @@ export default function createLayout(graph, physicsSettings) {
     dispose: function () {
       graph.off("nodeAdded", nodeAddedHandler);
       graph.off("edgeAdded", edgeAddedHandler);
-      graph.off("nodeDropped", nodeDroppedHandler);
       graph.off("edgeDropped", edgeDroppedHandler);
       graph.off("nodeAttributesUpdated", nodeAttributesUpdatedHandler);
       graph.off("cleared", handleCleared);
@@ -154,13 +145,15 @@ export default function createLayout(graph, physicsSettings) {
      * Gets physical body for a given node id. If node is not found undefined
      * value is returned.
      */
-    getBody: getBody,
+    getBody: physicsSimulator.getBody,
 
     /**
      * Gets spring for a given edge.
      * @param {string} linkId link identifier.
      */
-    getSpring: getSpring,
+    getSpring: physicsSimulator.getSpring,
+
+    forEachBody: physicsSimulator.forEachBody,
 
     /**
      * Returns length of cumulative force vector. The closer this to zero - the more stable the system is
@@ -183,6 +176,8 @@ export default function createLayout(graph, physicsSettings) {
     lastMove: 0,
 
     getDimensions: getDimensions,
+
+    isNodeOriginallyPinned: physicsSimulator.isNodeOriginallyPinned,
   };
 
   if (physicsSettings && physicsSettings.debug) {
@@ -194,15 +189,12 @@ export default function createLayout(graph, physicsSettings) {
       onStableChanged: onStableChanged,
       initPhysics: initPhysics,
       initBody: initBody,
-      releaseNode: releaseNode,
-      releaseLink: releaseLink,
-      getNeighborBodies: getNeighborBodies,
+      releaseEdge: releaseEdge,
+      getNeighborNodes: getNeighborNodes,
       updateBodyMass: updateBodyMass,
-      isNodeOriginallyPinned: isNodeOriginallyPinned,
       getInitializedBody: getInitializedBody,
       defaultNodeMass: defaultNodeMass,
       initLink: initLink,
-      nodeBodies: nodeBodies,
     };
     Object.assign(api, privateFunctions);
   }
@@ -222,30 +214,18 @@ export default function createLayout(graph, physicsSettings) {
     }
   }
 
-  function forEachBody(cb) {
-    // untouched
-    nodeBodies.forEach(cb);
-  }
-
   function getForceVectorLength() {
     // untouched
     let fx = 0;
     let fy = 0;
-    forEachBody(function (body) {
-      fx += Math.abs(body.force.x);
-      fy += Math.abs(body.force.y);
+    graph.forEachNode((node, attributes) => {
+      const body = attributes[physicsSimulator.settings.body]
+      if (body) {
+        fx += Math.abs(body.force.x);
+        fy += Math.abs(body.force.y);
+      }
     });
     return Math.sqrt(fx * fx + fy * fy);
-  }
-
-  function getSpring(linkId) {
-    // graphology
-    return physicsSimulator.getSpring(linkId);
-  }
-
-  function getBody(nodeId) {
-    // untouched
-    return nodeBodies.get(nodeId);
   }
 
   function pinNode(nodeId, isPinned) {
@@ -257,7 +237,6 @@ export default function createLayout(graph, physicsSettings) {
     // graphology
     graph.on("nodeAdded", nodeAddedHandler);
     graph.on("edgeAdded", edgeAddedHandler);
-    graph.on("nodeDropped", nodeDroppedHandler);
     graph.on("edgeDropped", edgeDroppedHandler);
     graph.on("nodeAttributesUpdated", nodeAttributesUpdatedHandler);
     graph.on("cleared", handleCleared);
@@ -265,15 +244,14 @@ export default function createLayout(graph, physicsSettings) {
 
   function handleNodeUpdates(type, nodeId, attributes, name) {
     if (type == "set") {
-      if (name == "isPinned") {
-        pinNode(nodeId, attributes.isPinned);
+      if (name == physicsSimulator.settings.isPinned) {
+        pinNode(nodeId, attributes[physicsSimulator.settings.isPinned]);
       }
     }
   }
 
   function handleCleared() {
-    physicsSimulator = createSimulator(physicsSettings);
-    nodeBodies = new Map();
+    physicsSimulator = createSimulator(graph, physicsSettings);
     initPhysics();
   }
 
@@ -289,107 +267,70 @@ export default function createLayout(graph, physicsSettings) {
   }
 
   function initBody(nodeId, nodeAttrs) {
-    // graphology
-    const initBody = nodeBodies.get(nodeId);
-    if (!initBody) {
+    if (!nodeAttrs[physicsSimulator.settings.body]) {
       if (!graph.hasNode(nodeId)) {
         throw new Error("initBody() was called with unknown node id");
       }
-
-      let pos = nodeAttrs.position;
+      
+      let pos = nodeAttrs[physicsSimulator.settings.position];
       if (!pos) {
-        const neighbors = getNeighborBodies(nodeId);
-        pos = physicsSimulator.getBestNewBodyPosition(neighbors);
+        // const neighbors = getNeighborNodes(nodeId);
+        pos = physicsSimulator.getBestNewBodyPosition(nodeId);
       }
-
-      const simBody = physicsSimulator.addBodyAt(pos);
-      simBody.id = nodeId;
-
-      nodeBodies.set(nodeId, simBody);
+      const body = physicsSimulator.createBodyAt(pos);
+      if (nodeAttrs[physicsSimulator.settings.isPinned]) {
+        body.isPinned = true;
+      }
+      physicsSimulator.addBody(nodeId, body);
       updateBodyMass(nodeId);
-
-      if (isNodeOriginallyPinned(nodeId)) {
-        simBody.isPinned = true;
-      }
     }
   }
 
-  function releaseNode(nodeId) {
-    // graphology
-    const body = nodeBodies.get(nodeId);
-    if (body) {
-      nodeBodies.delete(nodeId);
-      physicsSimulator.removeBody(body);
-    }
-  }
-
-  function initLink(edge, attributes, source, target) {
-    const fromBody = nodeBodies.get(source);
-    const toBody = nodeBodies.get(target);
+  function initLink(edgeId, attributes, source, target) {
+    const fromBody = physicsSimulator.getBody(source);
+    const toBody = physicsSimulator.getBody(target);
     if (!fromBody || !toBody) {
       throw new Error(
-        "initLink() was called with unknown source or target node id",
+        "initLink() was called with unknown source or target node body",
       );
     }
     const spring = new Spring(fromBody, toBody, attributes.length);
-    physicsSimulator.addSpringWithKey(edge, spring);
+    physicsSimulator.addSpring(edgeId, spring);
     updateBodyMass(source);
     updateBodyMass(target);
     return spring;
   }
 
-  function releaseLink(link) {
-    // graphology
-    const spring = physicsSimulator.getSpring(link);
-    if (!spring) {
-      throw new Error("releaseLink() was called with unknown link id");
-    }
-    const source = spring.from;
-    const target = spring.to;
-    physicsSimulator.removeSpring(link);
-    updateBodyMass(source.id);
-    updateBodyMass(target.id);
+  function releaseEdge(edgeId, attributes, source, target) {
+    const spring = attributes[physicsSimulator.settings.spring];
+    updateBodyMass(source);
+    updateBodyMass(target);
     return spring;
   }
 
-  function getNeighborBodies(nodeId) {
-    // graphology
+  function getNeighborNodes(nodeId) {
     if (!graph.hasNode(nodeId)) {
       throw new Error("getNeighborBodies() was called with unknown node id");
     }
-    const neighbors = graph.mapNeighbors(nodeId, (neighbor) => {
-      return nodeBodies.get(neighbor);
-    });
-    const maxNeighbors = Math.min(neighbors.length, 2); // Not sure why we're capping the neighbors, but that's how the old code worked
 
+    const neighbors = graph.neighbors(nodeId);
+    const maxNeighbors = Math.min(neighbors.length, 2); // Not sure why we're capping the neighbors, but that's how the old code worked
     return neighbors.slice(0, maxNeighbors);
   }
 
   function updateBodyMass(nodeId) {
-    // untouched
-    const body = nodeBodies.get(nodeId);
+    const body = graph.getNodeAttribute(nodeId, physicsSimulator.settings.body);
     body.mass = nodeMass(nodeId);
-  }
-
-  /**
-   * Checks whether graphology node has isPinned attribute,
-   * which means layout algorithm cannot move it.
-   *
-   * @param {any} node a graphology node to check
-   * @return {Boolean} true if node should be treated as pinned; falsy otherwise.
-   */
-  function isNodeOriginallyPinned(node) {
-    return graph.getNodeAttribute(node, "isPinned");
+    graph.setNodeAttribute(nodeId, physicsSimulator.settings.body, body);
   }
 
   function getInitializedBody(nodeId) {
-    // untouched
-    let body = nodeBodies.get(nodeId);
+    const body = graph.getNodeAttribute(nodeId, physicsSimulator.settings.body);
     if (!body) {
-      initBody(nodeId);
-      body = nodeBodies.get(nodeId);
+      initBody(nodeId, graph.getNodeAttributes(nodeId));
+      return getInitializedBody(nodeId);
     }
-    return body;
+    return body
   }
 
   /**
