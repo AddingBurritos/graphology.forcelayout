@@ -32,7 +32,7 @@ export default function createLayout(graph, physicsSettings) {
   const edgeAddedHandler = ({ key, source, target, attributes }) =>
     initLink(key, attributes, source, target);
   const edgeDroppedHandler = ({ key, source, target, attributes }) =>
-    releaseLink(key, attributes, source, target);
+    releaseEdge(key, attributes, source, target);
   const nodeAttributesUpdatedHandler = ({ type, key, attributes, name }) =>
     handleNodeUpdates(type, key, attributes, name); // Could pass 'data' if we wanted
 
@@ -185,7 +185,7 @@ export default function createLayout(graph, physicsSettings) {
       onStableChanged: onStableChanged,
       initPhysics: initPhysics,
       initBody: initBody,
-      releaseLink: releaseLink,
+      releaseEdge: releaseEdge,
       getNeighborNodes: getNeighborNodes,
       updateBodyMass: updateBodyMass,
       getInitializedBody: getInitializedBody,
@@ -297,7 +297,7 @@ export default function createLayout(graph, physicsSettings) {
     return spring;
   }
 
-  function releaseLink(edgeId, attributes, source, target) {
+  function releaseEdge(edgeId, attributes, source, target) {
     const spring = attributes[physicsSimulator.settings.spring];
     updateBodyMass(source);
     updateBodyMass(target);

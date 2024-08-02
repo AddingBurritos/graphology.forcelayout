@@ -84,17 +84,17 @@ t.test("it returns body", function (t) {
   const g = new Graph();
   const layout = createLayout(g);
 
-  g.addNode(1);
-  g.addNode(2);
-  g.addEdge(1, 2);
+  g.addNode("src");
+  g.addNode("dst");
+  g.addEdge("src", "dst");
 
-  t.ok(layout.getBody("1"), "node 1 has body");
-  t.ok(layout.getBody("2"), "node 2 has body");
-  t.notOk(layout.getBody("4"), "there is no node 4");
+  t.ok(layout.getBody("src"), "src has body");
+  t.ok(layout.getBody("dst"), "dst has body");
+  t.throws(() => layout.getBody("other"), /cannot getBody from nonexistent node/);
 
-  const body = layout.getBody("1");
-  t.ok(body.pos.x && body.pos.y, "Body has a position");
-  t.ok(body.mass, "Body has a mass");
+  const body = layout.getBody("src");
+  t.ok(body.pos.x && body.pos.y, "src body has a position");
+  t.ok(body.mass, "src body has a mass");
 
   t.end();
 });
@@ -151,8 +151,8 @@ t.test("getForceVectorLength implements pythagorean theorem", function (t) {
   graph.addNode("node1");
   graph.addNode("node2");
   const layout = createLayout(graph, { debug: true });
-  layout.nodeBodies.get("node1").force.x = 3;
-  layout.nodeBodies.get("node2").force.y = 4;
+  layout.getBody("node1").force.x = 3;
+  layout.getBody("node2").force.y = 4;
   t.equal(layout.getForceVectorLength(), 5, "force vector is 3 4 5 triangle");
   t.end();
 });
@@ -161,40 +161,48 @@ t.test("handleNodeUpdates pins nodes appropriately", function (t) {
   const graph = new Graph();
   graph.addNode("node1");
   const layout = createLayout(graph, { debug: true });
-  t.notOk(layout.nodeBodies.get("node1").isPinned, "node1 is not pinned");
+  t.notOk(layout.getBody("node1").isPinned, "node1 is not pinned");
   layout.handleNodeUpdates("set", "node1", { isPinned: true }, "isPinned");
-  t.ok(layout.nodeBodies.get("node1").isPinned, "node1 is pinned");
+  t.ok(layout.getBody("node1").isPinned, "node1 is pinned");
   t.end();
 });
 
-t.test("releaseNode deletes node", function (t) {
+t.test("dropping node deletes edge", function (t) {
   const graph = new Graph();
-  graph.addNode("node1");
+  graph.addNode("src");
+  graph.addNode("dst");
+  graph.addEdgeWithKey("test", "src", "dst");
   const layout = createLayout(graph, { debug: true });
-  t.ok(layout.nodeBodies.has("node1"), "node1 exists");
-  t.equal(layout.simulator.bodies.length, 1, "simulator has 1 body");
-  layout.releaseNode("node1");
-  t.notOk(layout.nodeBodies.has("node1"), "node1 is gone");
-  t.equal(layout.simulator.bodies.length, 0, "simulator has no bodies");
+
+  t.ok(graph.hasEdge("test"), "edge exists");
+  t.equal(layout.getBody("src").mass, 1 + 1 / 3.0, "body mass is 2/3");
+  t.equal(layout.getBody("dst").mass, 1 + 1 / 3.0, "body mass is 2/3");
+
+  graph.dropNode("src");
+
+  t.notOk(graph.hasEdge("test"), "edge does not exist");
+  t.notOk(graph.hasNode("src"), "src does not exist");
+  t.ok(graph.hasNode("dst"), "dst exists");
+  t.equal(layout.getBody("dst").mass, 1, "dst mass updated");
   t.end();
 });
 
-t.test("releaseLink deletes spring", function (t) {
+t.test("dropping edge deletes spring", function (t) {
   const graph = new Graph();
   graph.addNode("node1");
   graph.addNode("node2");
   graph.addEdgeWithKey("test", "node1", "node2");
   const layout = createLayout(graph, { debug: true });
   t.ok(layout.getSpring("test"), "spring exists");
-  t.equal(layout.simulator.springs.size, 1, "simulator has 1 spring");
-  t.equal(layout.nodeBodies.get("node1").mass, 1 + 1 / 3.0, "body mass is 2/3");
-  t.equal(layout.nodeBodies.get("node2").mass, 1 + 1 / 3.0, "body mass is 2/3");
+  t.equal(layout.simulator.countSprings(), 1, "simulator has 1 spring");
+  t.equal(layout.getBody("node1").mass, 1 + 1 / 3.0, "body mass is 2/3");
+  t.equal(layout.getBody("node2").mass, 1 + 1 / 3.0, "body mass is 2/3");
 
   graph.dropEdge("test");
-  t.notOk(layout.getSpring("test"), "spring is gone");
-  t.equal(layout.simulator.springs.size, 0, "simulator has no springs");
-  t.equal(layout.nodeBodies.get("node1").mass, 1, "body mass is 1");
-  t.equal(layout.nodeBodies.get("node2").mass, 1, "body mass is 1");
+  t.throws(() => layout.getSpring("test"), /cannot getSpring from nonexistent edge/);
+  t.equal(layout.simulator.countSprings(), 0, "simulator has no springs");
+  t.equal(layout.getBody("node1").mass, 1, "body mass is 1");
+  t.equal(layout.getBody("node2").mass, 1, "body mass is 1");
   t.end();
 });
 
@@ -482,11 +490,11 @@ t.test("can stop listen to events", function (t) {
   const layout = createLayout(graph);
   layout.dispose();
 
-  graph.addNode(1);
-  graph.addNode(2);
-  graph.addEdge(1, 2);
+  graph.addNode("src");
+  graph.addNode("dst");
+  graph.addEdgeWithKey("test", "src", "dst");
   layout.step();
-  t.ok(layout.simulator.bodies.length === 0, "No bodies in the simulator");
+  t.equal(layout.simulator.countBodies(), 0, "No bodies in the simulator");
 
   t.end();
 });
@@ -589,7 +597,7 @@ t.test("it handles large graphs", function (t) {
 
   layout.step();
 
-  t.ok(layout.simulator.bodies.length !== 0, "Bodies in the simulator");
+  t.ok(layout.simulator.countBodies() !== 0, "Bodies in the simulator");
   t.end();
 });
 
