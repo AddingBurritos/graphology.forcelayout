@@ -128,8 +128,8 @@ t.test("Throws when adding forces of duplicate name", function (t) {
 t.test("Can configure forces", function (t) {
   t.test("Gravity", function (t) {
     const simulator = createPhysicsSimulator();
-    const body1 = new Body2(0, 0);
-    const body2 = new Body2(1, 0);
+    const body1 = new Body2(-0.5, 0);
+    const body2 = new Body2(0.5, 0);
 
     simulator.addBody("test1", body1);
     simulator.addBody("test2", body2);
@@ -138,12 +138,14 @@ t.test("Can configure forces", function (t) {
     // by default gravity is negative, bodies should repel each other:
     const xDist = Math.abs(body1.pos.x - body2.pos.x); 
     t.ok(xDist > 1, "Body 1 moves away from body 2");
+    t.equal(body1.pos.x, body2.pos.x * -1, "Bodies repel equally");
 
     // now reverse gravity, and bodies should attract each other:
     simulator.gravity(100);
     simulator.step();
     const newDist = Math.abs(body1.pos.x - body2.pos.x);
     t.ok(xDist > newDist, "Body 1 moved towards body 2");
+    t.equal(body1.pos.x, body2.pos.x * -1, "Bodies attract equally");
 
     t.end();
   });
@@ -328,6 +330,7 @@ t.test("Can remove springs", function (t) {
   simulator.step();
   const dist = Math.abs(body1.pos.x - body2.pos.x);
   t.ok(dist > 20, "Body 1 should move away from body 2");
+  t.equal(body1.pos.x, body2.pos.x * -1, "Bodies repel equally");
 
   t.end();
 });
