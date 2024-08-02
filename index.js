@@ -18,7 +18,7 @@ export default function createLayout(graph, physicsSettings) {
   }
 
   const createSimulator = (physicsSettings && physicsSettings.createSimulator) || createPhysicsSimulator;
-  let physicsSimulator = createSimulator(physicsSettings);
+  let physicsSimulator = createSimulator(graph, physicsSettings);
   if (Array.isArray(physicsSettings))
     throw new Error("Physics settings is expected to be an object");
 
@@ -114,11 +114,6 @@ export default function createLayout(graph, physicsSettings) {
     getGraphRect: function () {
       return physicsSimulator.getBBox();
     },
-
-    /**
-     * Iterates over each body in the layout simulator and performs a callback(body, nodeId)
-     */
-    forEachBody: forEachBody,
 
     /*
      * Requests layout algorithm to pin/unpin node to its current position
@@ -252,7 +247,7 @@ export default function createLayout(graph, physicsSettings) {
   }
 
   function handleCleared() {
-    physicsSimulator = createSimulator(physicsSettings);
+    physicsSimulator = createSimulator(graph, physicsSettings);
     initPhysics();
   }
 
@@ -275,8 +270,8 @@ export default function createLayout(graph, physicsSettings) {
       
       let pos = nodeAttrs[physicsSimulator.settings.position];
       if (!pos) {
-        const neighbors = getNeighborNodes(nodeId);
-        pos = physicsSimulator.getBestNewBodyPosition(neighbors);
+        // const neighbors = getNeighborNodes(nodeId);
+        pos = physicsSimulator.getBestNewBodyPosition(nodeId);
       }
       const body = physicsSimulator.createBodyAt(pos);
       if (nodeAttrs[physicsSimulator.settings.isPinned]) {
@@ -313,10 +308,10 @@ export default function createLayout(graph, physicsSettings) {
     if (!graph.hasNode(nodeId)) {
       throw new Error("getNeighborBodies() was called with unknown node id");
     }
-    const maxNeighbors = Math.min(neighbors.length, 2); // Not sure why we're capping the neighbors, but that's how the old code worked
 
-    const neighbors = graph.neighbors(nodeId).slice(0, maxNeighbors);
-    return neighbors;
+    const neighbors = graph.neighbors(nodeId);
+    const maxNeighbors = Math.min(neighbors.length, 2); // Not sure why we're capping the neighbors, but that's how the old code worked
+    return neighbors.slice(0, maxNeighbors);
   }
 
   function updateBodyMass(nodeId) {

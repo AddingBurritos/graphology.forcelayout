@@ -391,7 +391,7 @@ t.test("it updates bounding box", function (t) {
 t.test("Get best position", function (t) {
   t.test("can get with empty simulator", function (t) {
     const simulator = createPhysicsSimulator();
-    const empty = simulator.getBestNewBodyPosition([]);
+    const empty = simulator.getBestNewBodyPosition();
     t.ok(typeof empty.x === "number", "Has X");
     t.ok(typeof empty.y === "number", "Has Y");
 
