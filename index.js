@@ -153,6 +153,8 @@ export default function createLayout(graph, physicsSettings) {
      */
     getSpring: physicsSimulator.getSpring,
 
+    forEachBody: physicsSimulator.forEachBody,
+
     /**
      * Returns length of cumulative force vector. The closer this to zero - the more stable the system is
      */
@@ -174,6 +176,8 @@ export default function createLayout(graph, physicsSettings) {
     lastMove: 0,
 
     getDimensions: getDimensions,
+
+    isNodeOriginallyPinned: physicsSimulator.isNodeOriginallyPinned,
   };
 
   if (physicsSettings && physicsSettings.debug) {

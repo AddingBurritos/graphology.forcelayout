@@ -559,24 +559,6 @@ t.test("it removes removed nodes", function (t) {
   t.end();
 });
 
-t.test("it can iterate over bodies", function (t) {
-  const graph = new Graph();
-  const layout = createLayout(graph);
-  graph.addNode(1);
-  graph.addNode(2);
-  graph.addEdge(1, 2);
-  let calledCount = 0;
-
-  layout.forEachBody(function (body, bodyId) {
-    t.ok(body.pos, bodyId + " has position");
-    t.ok(graph.hasNode(bodyId), bodyId + " matches a graph node");
-    calledCount += 1;
-  });
-
-  t.equal(calledCount, 2, "Both bodies are visited");
-  t.end();
-});
-
 t.test("it handles large graphs", function (t) {
   const graph = new Graph({ multi: true }); // Multigraph in case random edges create parallels
   const layout = createLayout(graph);
@@ -651,34 +633,6 @@ t.test("getNeighborBodies throws if node is not found", function (t) {
 t.test("physicsSettings must not be an array", function (t) {
   const graph = new Graph();
   t.throws(() => createLayout(graph, []), "Throws if settings is array");
-  t.end();
-});
-
-t.test("isNodeOriginallyPinned", function (t) {
-  t.test("returns true if node is pinned", function (t) {
-    const graph = new Graph();
-    graph.addNode("test", { isPinned: true });
-    const layout = createLayout(graph, { debug: true });
-    t.ok(layout.isNodeOriginallyPinned("test"), "Node is pinned");
-    t.end();
-  });
-
-  t.test("returns false if node is not pinned", function (t) {
-    const graph = new Graph();
-    graph.addNode("test", { isPinned: false });
-    const layout = createLayout(graph, { debug: true });
-    t.notOk(layout.isNodeOriginallyPinned("test"), "Node is not pinned");
-    t.end();
-  });
-
-  t.test("returns undefined if isPinned is not defined", function (t) {
-    const graph = new Graph();
-    graph.addNode("test");
-    const layout = createLayout(graph, { debug: true });
-    t.notOk(layout.isNodeOriginallyPinned("test"), "Node is not pinned");
-    t.end();
-  });
-
   t.end();
 });
 

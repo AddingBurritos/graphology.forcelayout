@@ -440,6 +440,53 @@ t.test("it can change settings", function (t) {
   t.end();
 });
 
+t.test("it can iterate over bodies", function (t) {
+  const graph = new Graph();
+  const simulator = createPhysicsSimulator(graph);
+
+  graph.addNode("src", {body: simulator.createBodyAt({x: 0, y: 0})});
+  graph.addNode("dst", {body: simulator.createBodyAt({x: 1, y: 1})});
+  graph.addEdgeWithKey("src->dst", "src", "dst");
+  let calledCount = 0;
+
+  simulator.forEachBody(function (bodyId, body) {
+    t.ok(body.pos, bodyId + " has position");
+    t.ok(graph.hasNode(bodyId), bodyId + " matches a graph node");
+    calledCount += 1;
+  });
+
+  t.equal(calledCount, 2, "Both bodies are visited");
+  t.end();
+});
+
+t.test("isNodeOriginallyPinned", function (t) {
+  t.test("returns true if node is pinned", function (t) {
+    const graph = new Graph();
+    graph.addNode("test", { isPinned: true });
+    const simulator = createPhysicsSimulator(graph);
+    t.ok(simulator.isNodeOriginallyPinned("test"), "Node is pinned");
+    t.end();
+  });
+
+  t.test("returns false if node is not pinned", function (t) {
+    const graph = new Graph();
+    graph.addNode("test", { isPinned: false });
+    const simulator = createPhysicsSimulator(graph);
+    t.notOk(simulator.isNodeOriginallyPinned("test"), "Node is not pinned");
+    t.end();
+  });
+
+  t.test("returns undefined if isPinned is not defined", function (t) {
+    const graph = new Graph();
+    graph.addNode("test");
+    const simulator = createPhysicsSimulator(graph);
+    t.notOk(simulator.isNodeOriginallyPinned("test"), "Node is not pinned");
+    t.end();
+  });
+
+  t.end();
+});
+
 t.test("it can augment string setter values", function (t) {
   const g = new Graph();
   const simulator = createPhysicsSimulator(g, {
