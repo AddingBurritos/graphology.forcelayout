@@ -1,0 +1,221 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>graphology.forcelayout Demo</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { background: #1a1a2e; overflow: hidden; font-family: system-ui, sans-serif; }
+  canvas { display: block; }
+  #controls {
+    position: fixed; top: 16px; left: 16px; color: #e0e0e0;
+    background: rgba(0,0,0,0.6); padding: 16px; border-radius: 8px;
+    font-size: 14px; min-width: 220px;
+  }
+  #controls h2 { margin-bottom: 8px; font-size: 16px; color: #7fdbca; }
+  #controls label { display: block; margin: 6px 0 2px; color: #aaa; }
+  #controls input[type=range] { width: 100%; }
+  #controls button {
+    margin-top: 10px; padding: 6px 14px; border: none; border-radius: 4px;
+    background: #7fdbca; color: #1a1a2e; cursor: pointer; font-weight: bold;
+  }
+  #controls button:hover { background: #5ec4ab; }
+  #info { position: fixed; bottom: 16px; left: 16px; color: #666; font-size: 12px; }
+</style>
+</head>
+<body>
+<canvas id="c"></canvas>
+<div id="controls">
+  <h2>Force Layout Demo</h2>
+  <label>Nodes: <span id="nVal">40</span></label>
+  <input type="range" id="nodes" min="10" max="200" value="40">
+  <label>Spring Length: <span id="slVal">30</span></label>
+  <input type="range" id="springLength" min="5" max="100" value="30">
+  <label>Gravity: <span id="gVal">-12</span></label>
+  <input type="range" id="gravity" min="-50" max="-1" value="-12">
+  <button id="reset">Reset Graph</button>
+</div>
+<div id="info">Drag nodes to move them. Scroll to zoom.</div>
+
+<script type="module">
+import Graph from './node_modules/graphology/dist/graphology.esm.js';
+import createLayout from './index.js';
+
+const canvas = document.getElementById('c');
+const ctx = canvas.getContext('2d');
+let W, H;
+
+function resize() {
+  W = canvas.width = window.innerWidth;
+  H = canvas.height = window.innerHeight;
+}
+resize();
+window.addEventListener('resize', resize);
+
+// Camera
+let camX = 0, camY = 0, camZoom = 1;
+canvas.addEventListener('wheel', e => {
+  e.preventDefault();
+  const factor = e.deltaY > 0 ? 0.9 : 1.1;
+  const mx = e.clientX - W / 2, my = e.clientY - H / 2;
+  camX = mx - factor * (mx - camX);
+  camY = my - factor * (my - camY);
+  camZoom *= factor;
+}, { passive: false });
+
+let graph, layout, running;
+
+function buildGraph() {
+  if (layout) layout.dispose();
+  graph = new Graph();
+
+  const n = +document.getElementById('nodes').value;
+  for (let i = 0; i < n; i++) {
+    graph.addNode(i, { size: 3 + Math.random() * 6 });
+  }
+
+  // Random connected graph: spanning tree + extra edges
+  for (let i = 1; i < n; i++) {
+    const j = Math.floor(Math.random() * i);
+    graph.addEdge(i, j);
+  }
+  const extras = Math.floor(n * 0.6);
+  for (let k = 0; k < extras; k++) {
+    const a = Math.floor(Math.random() * n);
+    const b = Math.floor(Math.random() * n);
+    if (a !== b && !graph.hasEdge(a, b) && !graph.hasEdge(b, a)) {
+      graph.addEdge(a, b);
+    }
+  }
+
+  layout = createLayout(graph, {
+    springLength: +document.getElementById('springLength').value,
+    springCoefficient: 0.8,
+    gravity: +document.getElementById('gravity').value,
+    theta: 0.8,
+    dragCoefficient: 0.9,
+    timeStep: 0.5,
+  });
+
+  camX = 0; camY = 0; camZoom = 1;
+  running = true;
+}
+
+buildGraph();
+
+// Interaction: drag nodes
+let dragNode = null, dragOffsetX = 0, dragOffsetY = 0, isPanning = false, panStartX, panStartY, camStartX, camStartY;
+
+function screenToWorld(sx, sy) {
+  return {
+    x: (sx - W / 2 - camX) / camZoom,
+    y: (sy - H / 2 - camY) / camZoom,
+  };
+}
+
+function findNode(sx, sy) {
+  const { x, y } = screenToWorld(sx, sy);
+  let closest = null, closestDist = Infinity;
+  graph.forEachNode((id, attr) => {
+    const pos = layout.getNodePosition(id);
+    const dx = pos.x - x, dy = pos.y - y;
+    const d = Math.sqrt(dx * dx + dy * dy);
+    const r = (attr.size || 5) + 4 / camZoom;
+    if (d < r && d < closestDist) {
+      closest = id;
+      closestDist = d;
+    }
+  });
+  return closest;
+}
+
+canvas.addEventListener('mousedown', e => {
+  const node = findNode(e.clientX, e.clientY);
+  if (node !== null) {
+    dragNode = node;
+    layout.pinNode(dragNode, true);
+    const pos = layout.getNodePosition(dragNode);
+    const w = screenToWorld(e.clientX, e.clientY);
+    dragOffsetX = pos.x - w.x;
+    dragOffsetY = pos.y - w.y;
+  } else {
+    isPanning = true;
+    panStartX = e.clientX; panStartY = e.clientY;
+    camStartX = camX; camStartY = camY;
+  }
+});
+
+canvas.addEventListener('mousemove', e => {
+  if (dragNode !== null) {
+    const { x, y } = screenToWorld(e.clientX, e.clientY);
+    layout.setNodePosition(dragNode, x + dragOffsetX, y + dragOffsetY);
+    running = true;
+  } else if (isPanning) {
+    camX = camStartX + (e.clientX - panStartX);
+    camY = camStartY + (e.clientY - panStartY);
+  }
+});
+
+canvas.addEventListener('mouseup', () => {
+  if (dragNode !== null) {
+    layout.pinNode(dragNode, false);
+    dragNode = null;
+  }
+  isPanning = false;
+});
+
+// Controls
+document.getElementById('nodes').oninput = e => document.getElementById('nVal').textContent = e.target.value;
+document.getElementById('springLength').oninput = e => document.getElementById('slVal').textContent = e.target.value;
+document.getElementById('gravity').oninput = e => document.getElementById('gVal').textContent = e.target.value;
+document.getElementById('reset').onclick = buildGraph;
+
+// Color palette
+const palette = ['#7fdbca','#c792ea','#f78c6c','#82aaff','#c3e88d','#ffcb6b','#ff5370','#89ddff'];
+
+function draw() {
+  ctx.clearRect(0, 0, W, H);
+  ctx.save();
+  ctx.translate(W / 2 + camX, H / 2 + camY);
+  ctx.scale(camZoom, camZoom);
+
+  // Edges
+  ctx.strokeStyle = 'rgba(255,255,255,0.12)';
+  ctx.lineWidth = 1 / camZoom;
+  graph.forEachEdge((id, attr, source, target) => {
+    const a = layout.getNodePosition(source);
+    const b = layout.getNodePosition(target);
+    ctx.beginPath();
+    ctx.moveTo(a.x, a.y);
+    ctx.lineTo(b.x, b.y);
+    ctx.stroke();
+  });
+
+  // Nodes
+  graph.forEachNode((id, attr) => {
+    const pos = layout.getNodePosition(id);
+    const r = attr.size || 5;
+    ctx.fillStyle = palette[id % palette.length];
+    ctx.beginPath();
+    ctx.arc(pos.x, pos.y, r, 0, Math.PI * 2);
+    ctx.fill();
+  });
+
+  ctx.restore();
+}
+
+let stableCount = 0;
+function tick() {
+  requestAnimationFrame(tick);
+  if (running) {
+    const stable = layout.step();
+    if (stable) stableCount++;
+    else stableCount = 0;
+    if (stableCount > 120) running = false;
+  }
+  draw();
+}
+tick();
+</script>
+</body>
+</html>
